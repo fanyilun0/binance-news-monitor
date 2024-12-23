@@ -4,7 +4,7 @@ import re
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
-from config import COOKIE, ALWAYS_NOTIFY, LISTING_API_URL, MONITOR_INTERVAL
+from config import ALWAYS_NOTIFY, LISTING_API_URL, MONITOR_INTERVAL
 from util import (
     DATA_DIR,
     LISTING_RAW_FILE,
@@ -13,7 +13,6 @@ from util import (
     log_with_time,
     build_article_link,
     build_message,
-    check_new_articles,
     fetch_and_save_html_content,
 )
 
@@ -33,7 +32,7 @@ def parse_listing_data(html_content: str) -> Optional[tuple[List[Dict[str, Any]]
         # 解析JSON数据
         json_data = json.loads(script_content.group(1))
         
-        # 保存解析后的JSON数据到data目��
+        # 保存解析后的JSON数据到data目录
         json_path = DATA_DIR / LISTING_PARSED_FILE
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(json_data, f, ensure_ascii=False, indent=2)
@@ -88,7 +87,7 @@ async def send_new_article_notifications(articles: List[Dict[str, Any]],
             message = build_message(
                 title=article['title'],
                 release_date=formatted_date,
-                link=build_article_link(article['id'], 'listing'),
+                link=build_article_link(article['title'], article['code']),
                 announcement_type=f"{source}",
                 is_initial=is_initial
             )
@@ -111,26 +110,41 @@ async def monitor() -> None:
             articles, latest_articles = result
             # 合并两个列表
             all_articles = articles + latest_articles
-            
+
             # 获取所有文章的ID集合
             current_article_ids = {article['id'] for article in all_articles}
             
-            # 首次执行时,只记录ID不推送
+            # 首次执行时,输出详细信息
             if len(last_article_ids) == 0:
-                log_with_time("🔴 First run, recording article IDs without notification")
+                log_with_time("🔵 First run, printing all current articles:")
+                for article in articles:
+                    formatted_date = datetime.fromtimestamp(
+                        article['releaseDate']/1000
+                    ).strftime('%Y-%m-%d %H:%M:%S')
+                    log_with_time(f"📄 {formatted_date} - [Listing] {article['title']}")
+                for article in latest_articles:
+                    formatted_date = datetime.fromtimestamp(
+                        article['releaseDate']/1000
+                    ).strftime('%Y-%m-%d %H:%M:%S')
+                    log_with_time(f"📄 {formatted_date} - [News] {article['title']}")
                 last_article_ids = current_article_ids
+                if ALWAYS_NOTIFY:
+                    log_with_time("🔔 ALWAYS_NOTIFY is True, sending initial notifications...")
+                    await send_new_article_notifications(all_articles, current_article_ids, True)
+                continue
             
             # 找出新文章ID
             new_article_ids = current_article_ids - last_article_ids
             
             if new_article_ids:
                 log_with_time(f"🟢 Found {len(new_article_ids)} new articles")
-                # print all new articles
-                for article in all_articles:
+                for article in articles:
                     if article['id'] in new_article_ids:
-                        log_with_time(f"🟢 Article: {article['title']}")
-                is_initial = len(last_article_ids) == 0 and ALWAYS_NOTIFY
-                await send_new_article_notifications(all_articles, new_article_ids, is_initial)
+                        log_with_time(f"🟢 Article: [Listing] {article['title']}")
+                for article in latest_articles:
+                    if article['id'] in new_article_ids:
+                        log_with_time(f"🟢 Article: [News] {article['title']}")
+                await send_new_article_notifications(all_articles, new_article_ids, False)
             else:
                 log_with_time("No new articles found")
             
@@ -139,7 +153,7 @@ async def monitor() -> None:
             
         except Exception as e:
             log_with_time(f"🔴 Error in monitor loop: {e}")
-            await send_message_async(f"❌ Monitor Error: {str(e)}")
+            await send_message_async(f"❌ Monitor Error: {str(e)}", is_error=True)
         
         await asyncio.sleep(MONITOR_INTERVAL)
 
