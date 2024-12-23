@@ -6,8 +6,10 @@ from typing import Optional, Dict, Any, List
 import os
 from pathlib import Path
 import json
+import asyncio
+import re
 
-from config import WEBHOOK_URL, PROXY_URL, USE_PROXY, COOKIE
+from config import WEBHOOK_URL, PROXY_URL, USE_PROXY, COOKIE_FILE
 
 # User-Agent池
 USER_AGENTS = [
@@ -61,6 +63,12 @@ DATA_DIR.mkdir(exist_ok=True)
 LISTING_RAW_FILE = "listing_raw.html"
 LISTING_PARSED_FILE = "listing_parsed.json"
 
+# 添加错误推送限制相关的全局变量
+ERROR_MSG_LIMIT = 5  # 每个时间窗口内的最大错误推送次数
+ERROR_MSG_WINDOW = 3600  # 时间窗口大小(秒)
+error_msg_count = 0
+last_error_reset_time = datetime.now()
+
 def get_emoji_for_type(title: str, announcement_type: str) -> str:
     """根据公告标题和类型返回相应的emoji
     
@@ -75,27 +83,27 @@ def get_emoji_for_type(title: str, announcement_type: str) -> str:
     return next((emoji for keyword, emoji in emoji_map.items() 
                 if keyword in title), "ℹ️")
 
-def build_article_link(article_id: str, category: str = '') -> str:
+def build_article_link(title: str, code: str) -> str:
     """构建文章链接
     
     Args:
-        article_id: 文章ID
-        category: 分类('listing', 'news', 'activities')
+        title: 文章标题
+        code: 文章code(不是id)
         
     Returns:
-        完整的文章URL
+        格式化后的文章链接
     """
     base_url = "https://www.binance.com/en/support/announcement/"
     
-    # 根据不同类型添加不同的参数
-    category_params = {
-        'listing': '?c=48&navId=48',
-        'news': '?c=49&navId=49',
-        'activities': '?c=50&navId=50'
-    }
+    # 处理标题格式
+    formatted_title = title.lower()
+    # 使用正则表达式移除特定标点符号，将撇号替换为连字符
+    formatted_title = re.sub(r'[()!?.,:“”#&]', '', formatted_title)
+    formatted_title = formatted_title.replace("'", "-")
+    # 将连续的空格替换为单个破折号
+    formatted_title = re.sub(r'\s+', '-', formatted_title)
     
-    params = category_params.get(category, '')
-    return f"{base_url}{article_id}{params}"
+    return f"{base_url}{formatted_title}-{code}"
 
 def build_message(title: str, 
                  release_date: str, 
@@ -132,13 +140,32 @@ def build_message(title: str,
         f"{prefix}\n"
         f"标题: {title}\n"
         f"时间: {release_date}\n"
-        f"链接: {link if link else '无链接'}"
+        f"链���: {link if link else '无链接'}"
     )
 
-async def send_message_async(message_content: str) -> None:
-    """发送消息到企业微信机器人"""
-    headers = {'Content-Type': 'application/json'}
+async def send_message_async(message_content: str, is_error: bool = False) -> None:
+    """发送消息到企业微信机器人
     
+    Args:
+        message_content: 要发送的消息内容
+        is_error: 是否为错误消息
+    """
+    global error_msg_count, last_error_reset_time
+    
+    # 检查是否需要重置错误计数
+    now = datetime.now()
+    if (now - last_error_reset_time).total_seconds() >= ERROR_MSG_WINDOW:
+        error_msg_count = 0
+        last_error_reset_time = now
+    
+    # 如果是错误消息且已达到限制,则只记录日志
+    if is_error:
+        if error_msg_count >= ERROR_MSG_LIMIT:
+            log_with_time(f"Error message suppressed (limit reached): {message_content}")
+            return
+        error_msg_count += 1
+        
+    headers = {'Content-Type': 'application/json'}
     payload = {
         "msgtype": "text",
         "text": {
@@ -146,6 +173,8 @@ async def send_message_async(message_content: str) -> None:
         }
     }
     
+    log_with_time(f"Sending message: {message_content}")
+
     proxy = PROXY_URL if USE_PROXY else None
     async with aiohttp.ClientSession() as session:
         async with session.post(WEBHOOK_URL, json=payload, headers=headers, proxy=proxy) as response:
@@ -162,8 +191,7 @@ def log_with_time(message: str, module: str = '') -> None:
         module: 模块名称
     """
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    module_prefix = f"[{module}] " if module else ""
-    print(f"[{current_time}] {module_prefix}{message}")
+    print(f"[{current_time}] {message}")
 
 def get_random_headers(referer: str = '') -> Dict[str, str]:
     """生成随机请求头"""
@@ -174,7 +202,7 @@ def get_random_headers(referer: str = '') -> Dict[str, str]:
         'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8,zh-TW;q=0.7',
         'cache-control': 'max-age=0',
         'User-Agent': random.choice(USER_AGENTS),
-        'cookie': COOKIE,
+        'cookie': get_random_cookie(),
         'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
         'sec-ch-ua-mobile': '?0',
         'sec-ch-ua-platform': '"Windows"',
@@ -200,41 +228,82 @@ async def initialize_monitor(save_and_parse_func: callable,
         return article_ids, initial_articles
     return set(), []
 
-async def check_new_articles(save_and_parse_func: callable, 
-                           last_ids: set) -> tuple:
-    """通用的检查新文章函数"""
-    articles = await save_and_parse_func()
-    if not articles:
-        return None, set()
-        
-    current_ids = {article['id'] for article in articles}
-    new_ids = current_ids - last_ids
+def load_cookies() -> List[str]:
+    """从文件加载cookie列表"""
+    cookie_path = Path(COOKIE_FILE)
+    if not cookie_path.exists():
+        log_with_time(f"No existing file found at {cookie_path}")
+        return []
+
+    with open(cookie_path, 'r', encoding='utf-8') as f:
+        cookies = [line.strip() for line in f if line.strip()]
     
-    return articles, new_ids
+    return cookies
 
-async def fetch_and_save_html_content(url: str, filename: str) -> Optional[str]:
-    """获取指定URL的HTML内容并保存
-    Args:
-        url: 要请求的URL
-        filename: 保存HTML内容的文件名
-    Returns:
-        响应的文本内容，如果请求失败则返回None
-    """
-    try:
-        headers = get_random_headers(url)
-        response = requests.get(url, headers=headers)
-        log_with_time(f"Response status: {response.status_code}")
-        
-        if response.status_code != 200:
-            log_with_time(f"Failed to fetch data: {response.status_code}")
+def get_random_cookie() -> str:
+    """获取随机cookie"""
+    cookies = load_cookies()
+    return random.choice(cookies)
+
+async def fetch_and_save_html_content(url: str, filename: str, max_retries: int = 3) -> Optional[str]:
+    """获取并保存HTML内容,使用随机cookie"""
+    headers = get_random_headers()
+    log_with_time(f"Starting request to {url}")
+    log_with_time(f"Using cookie: {headers['cookie'][:50]}...")
+    
+    for attempt in range(max_retries):
+        try:
+            proxy = PROXY_URL if USE_PROXY else None
+            log_with_time(f"Attempt {attempt + 1}/{max_retries} with proxy: {proxy}")
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers, proxy=proxy) as response:
+                    log_with_time(f"Response status: {response.status}")
+                    
+                    if response.status == 202:
+                        log_with_time("Received 202 status, retrying...")
+                        await asyncio.sleep(2)
+                        continue
+                        
+                    if response.status != 200:
+                        error_msg = f"Request failed with status {response.status} for URL: {url}"
+                        log_with_time(error_msg)
+                        if attempt == max_retries - 1:  # 最后一次重试
+                            error_msg = f"All {max_retries} attempts failed for {url}"
+                            log_with_time(error_msg)
+                            await send_message_async(error_msg, is_error=True)
+                        continue
+                        
+                    response_text = await response.text()
+                    
+                    # 验证响应内容是否有效
+                    is_valid = "binance" in response_text.lower()
+                    log_with_time(f"Response validation: {'Valid' if is_valid else 'Invalid'} (contains 'binance': {is_valid})")
+                    
+                    if not is_valid:
+                        log_with_time(f"Invalid response with cookie: {headers['cookie'][:50]}...")
+                        continue
+                    
+                    file_path = DATA_DIR / filename
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(response_text)
+                    log_with_time(f"Raw HTML saved to {file_path}")
+                    
+                    return response_text
+                    
+        except Exception as e:
+            error_msg = f"Attempt {attempt + 1} failed with error: {str(e)}"
+            log_with_time(error_msg)
+            
+        if attempt < max_retries - 1:
+            delay = random.uniform(1, 3)
+            log_with_time(f"Retrying in {delay:.1f} seconds...")
+            await asyncio.sleep(delay)
+        else:
+            error_msg = f"All {max_retries} attempts failed for {url}"
+            log_with_time(error_msg)
+            await send_message_async(error_msg, is_error=True)
             return None
-
-        save_html_content(response.text, filename)
-        return response.text
-        
-    except Exception as e:
-        log_with_time(f"Error fetching data from {url}: {e}")
-        return None
 
 def save_html_content(response_text: str, filename: str) -> None:
     """保存HTML内容到data目录下的文件
