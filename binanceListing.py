@@ -81,15 +81,10 @@ async def send_new_article_notifications(articles: List[Dict[str, Any]],
                 article['releaseDate']/1000
             ).strftime('%Y-%m-%d %H:%M:%S')
             
-            # 添加来源标记
-            source = "Latest Articles" if 'catalogName' in article else "Listing"
-
             message = build_message(
                 title=article['title'],
                 release_date=formatted_date,
                 link=build_article_link(article['title'], article['code']),
-                announcement_type=f"{source}",
-                is_initial=is_initial
             )
             await send_message_async(message)
 
