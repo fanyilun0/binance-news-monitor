@@ -1,15 +1,14 @@
-import requests
 import aiohttp
 import random
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-import os
 from pathlib import Path
 import json
 import asyncio
 import re
 
 from config import WEBHOOK_URL, PROXY_URL, USE_PROXY, COOKIE_FILE
+from emoji import get_emoji_and_type
 
 # User-Agent池
 USER_AGENTS = [
@@ -21,39 +20,6 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
 ]
-
-# Emoji映射字典
-EMOJI_MAPPINGS = {
-    # 上币公告
-    'listing': {
-        "Introducing": "🚀",
-        "上线": "🚀",
-        "Launchpool": "🌱", 
-        "Futures": "📈",
-        "Options": "📊",
-        "Margin": "💹"
-    },
-    # 新闻公告
-    'news': {
-        "Binance": "📢",
-        "币安": "📢",
-        "Announcement": "📣",
-        "公告": "📣",
-        "Notice": "ℹ️",
-        "通知": "ℹ️"
-    },
-    # 活动公告
-    'activities': {
-        "Rewards": "🎁",
-        "奖励": "🎁",
-        "Campaign": "🎯",
-        "活动": "🎯",
-        "Airdrop": "🪂",
-        "空投": "🪂",
-        "Staking": "🏆",
-        "质押": "🏆"
-    }
-}
 
 # 文件路径相关配置
 DATA_DIR = Path("data")
@@ -68,20 +34,6 @@ ERROR_MSG_LIMIT = 5  # 每个时间窗口内的最大错误推送次数
 ERROR_MSG_WINDOW = 3600  # 时间窗口大小(秒)
 error_msg_count = 0
 last_error_reset_time = datetime.now()
-
-def get_emoji_for_type(title: str, announcement_type: str) -> str:
-    """根据公告标题和类型返回相应的emoji
-    
-    Args:
-        title: 公告标题
-        announcement_type: 公告类型('listing', 'news', 'activities')
-        
-    Returns:
-        对应的emoji字符串
-    """
-    emoji_map = EMOJI_MAPPINGS.get(announcement_type, {})
-    return next((emoji for keyword, emoji in emoji_map.items() 
-                if keyword in title), "ℹ️")
 
 def build_article_link(title: str, code: str) -> str:
     """构建文章链接
@@ -107,40 +59,25 @@ def build_article_link(title: str, code: str) -> str:
 
 def build_message(title: str, 
                  release_date: str, 
-                 link: str,
-                 announcement_type: str,
-                 is_initial: bool = False) -> str:
+                 link: str
+                 ) -> str:
     """构建通用的推送消息
     
     Args:
         title: 公告标题
         release_date: 发布时间
         link: 文章链接
-        announcement_type: 公告类型('listing', 'news', 'activities')
-        is_initial: 是否为初始化消息
         
     Returns:
         格式化的消息字符串
     """
-    emoji = get_emoji_for_type(title, announcement_type)
-    
-    # 根据不同类型设置不同的前缀
-    prefix_map = {
-        'listing': "新币种上线公告",
-        'news': "币安新闻公告",
-        'activities': "币安活动公告"
-    }
-    
-    if is_initial:
-        prefix = f"📢 Initial {prefix_map.get(announcement_type, '')} Alert 📢"
-    else:
-        prefix = f"{emoji} {prefix_map.get(announcement_type, '')} 📢"
+    emoji, type = get_emoji_and_type(title)
     
     return (
-        f"{prefix}\n"
-        f"标题: {title}\n"
-        f"时间: {release_date}\n"
-        f"链���: {link if link else '无链接'}"
+        f"{emoji} {type}\n"
+        f"📌: {title}\n"
+        f"🕒: {release_date}\n"
+        f"🔗: {link if link else '无链接'}"
     )
 
 async def send_message_async(message_content: str, is_error: bool = False) -> None:
