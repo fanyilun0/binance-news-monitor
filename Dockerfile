@@ -1,8 +1,9 @@
-# 使用自定义私有Docker镜像仓库
-FROM docker.dadunode.com/python:3.9-slim
+# 使用playwright官方镜像
+FROM mcr.microsoft.com/playwright:v1.41.0-jammy
 
 # 设置环境变量，禁用Python的输出缓冲
 ENV PYTHONUNBUFFERED=1
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # 设置构建时的代理环境变量
 ARG HTTP_PROXY
@@ -19,7 +20,7 @@ RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
     && pip config set global.trusted-host mirrors.aliyun.com \
     && pip config set global.timeout 120
 
-# 安装依赖
+# 安装Python依赖
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
