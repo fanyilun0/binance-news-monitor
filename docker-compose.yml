@@ -12,6 +12,10 @@ services:
       - IS_DOCKER=true
       - HTTP_PROXY=http://host.docker.internal:7890
       - HTTPS_PROXY=http://host.docker.internal:7890
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    cap_add:
+      - SYS_ADMIN
+    shm_size: '1gb'
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: always
