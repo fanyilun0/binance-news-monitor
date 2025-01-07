@@ -2,7 +2,8 @@ import asyncio
 import json
 import re
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
+from collections import deque
 
 from config import ALWAYS_NOTIFY, LISTING_API_URL, MONITOR_INTERVAL
 from util import (
@@ -17,6 +18,10 @@ from util import (
 )
 
 last_article_ids = set()
+
+ERROR_WINDOW = timedelta(minutes=15)  # 错误检测时间窗口
+ERROR_THRESHOLD = 10  # 错误次数阈值
+error_times = deque()  # 存储错误发生时间的队列
 
 def parse_listing_data(html_content: str) -> Optional[tuple[List[Dict[str, Any]], List[Dict[str, Any]]]]:
     """从HTML内容中解析出新币上线信息,返回(articles, latest_articles)元组"""
@@ -90,7 +95,7 @@ async def send_new_article_notifications(articles: List[Dict[str, Any]],
 
 async def monitor() -> None:
     """监控新币上线公告"""
-    global last_article_ids
+    global last_article_ids, error_times
     log_with_time("🟢 Starting Binance listing monitor...")
     
     while True:
@@ -147,8 +152,23 @@ async def monitor() -> None:
             last_article_ids = current_article_ids
             
         except Exception as e:
+            current_time = datetime.now()
+            # 清理超过时间窗口的错误记录
+            while error_times and current_time - error_times[0] > ERROR_WINDOW:
+                error_times.popleft()
+            
+            # 添加当前错误时间
+            error_times.append(current_time)
+            
+            # 记录错误日志
             log_with_time(f"🔴 Error in monitor loop: {e}")
-            await send_message_async(f"❌ Monitor Error: {str(e)}", is_error=True)
+            
+            # 只有在时间窗口内错误次数达到阈值时才发送通知
+            if len(error_times) >= ERROR_THRESHOLD:
+                await send_message_async(
+                    f"❌ Monitor News Error", 
+                    is_error=True
+                )
         
         await asyncio.sleep(MONITOR_INTERVAL)
 
