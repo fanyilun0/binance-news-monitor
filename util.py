@@ -170,10 +170,10 @@ async def fetch_and_save_html_content(url: str, filename: str, max_retries: int 
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers, proxy=proxy) as response:
-                    log_with_time(f"Response status: {response.status}")
+                    log_with_time(f"🔄 Response status: {response.status}")
                     
                     if response.status == 202:
-                        log_with_time("Cookie expired, updating...")
+                        log_with_time("🔑 Cookie expired, updating...")
                         await cookie_manager.update_cookies()
                         continue
                         
@@ -183,11 +183,11 @@ async def fetch_and_save_html_content(url: str, filename: str, max_retries: int 
                         # 保存内容到文件
                         file_path = DATA_DIR / filename
                         file_path.write_text(content, encoding='utf-8')
-                        log_with_time(f"Content saved to {file_path}")
+                        log_with_time(f"💾 Content saved to {file_path}")
                         
                         return content
                     else:
-                        log_with_time(f"Request failed with status: {response.status}")
+                        log_with_time(f"❌ Request failed with status: {response.status}")
                         
         except Exception as e:
             log_with_time(f"Error in attempt {attempt + 1}: {e}")
