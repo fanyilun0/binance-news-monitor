@@ -21,17 +21,17 @@ class CookieManager:
         try:
             if self.cookie_file.exists():
                 self.cookie_str = self.cookie_file.read_text().strip()
-                self._log(f"Loaded cookies from {self.cookie_file}")
+                self._log(f"📥 Loaded cookies from {self.cookie_file}")
         except Exception as e:
-            self._log(f"Failed to load cookies: {e}")
+            self._log(f"❌ Failed to load cookies: {e}")
 
     def _save_cookies(self) -> None:
         """保存cookie到文件"""
         try:
             self.cookie_file.write_text(self.cookie_str)
-            self._log(f"Saved cookies to {self.cookie_file}")
+            self._log(f"📤 Saved cookies to {self.cookie_file}")
         except Exception as e:
-            self._log(f"Failed to save cookies: {e}")
+            self._log(f"❌ Failed to save cookies: {e}")
 
     async def update_cookies(self) -> str:
         """使用playwright获取新的cookie
@@ -39,7 +39,7 @@ class CookieManager:
         Returns:
             str: 新的cookie字符串
         """
-        self._log("Starting to fetch new cookies...")
+        self._log("🔄 Starting to fetch new cookies...")
         
         async with async_playwright() as p:
             # 配置启动参数以支持Docker环境
@@ -63,11 +63,11 @@ class CookieManager:
                 # 保存新cookie到文件
                 self._save_cookies()
                 
-                self._log("Successfully fetched new cookies")
+                self._log("✅ Successfully fetched new cookies")
                 return self.cookie_str
                 
             except Exception as e:
-                self._log(f"Failed to fetch cookies: {e}")
+                self._log(f"❌ Failed to fetch cookies: {e}")
                 raise
             finally:
                 await browser.close()
