@@ -19,6 +19,7 @@
 - 🔄 实时监控币安公告
 - 📢 支持企业微信机器人通知
 - 🔍 智能去重，避免重复通知
+- 🔑 Cookie 自动更新机制
 
 ### 部署特性
 - 🐳 支持 Docker 部署
@@ -33,6 +34,7 @@
 ## 环境要求
 
 - Python 3.9+
+- Playwright
 - Docker(可选,用于容器化部署)
 - 企业微信机器人配置
 - 网络代理(国内环境建议使用)
@@ -50,6 +52,7 @@ cd binance-news-monitor
 2. 安装依赖：
 ```bash
 pip install -r requirements.txt
+python -m playwright install chromium
 ```
 
 3. 配置参数：
@@ -58,7 +61,7 @@ pip install -r requirements.txt
 - `USE_PROXY`：是否使用代理
 - `PROXY_URL`：代理服务器地址
 - `MONITOR_INTERVAL`：监控间隔时间（秒）
-- `COOKIE`：网页打开cookie (可选) 如果返回202，则需要配置cookie
+- `COOKIE_FILE`：cookie 文件路径（可选）
 
 4. 运行程序：
 ```bash
@@ -86,8 +89,11 @@ PROXY_URL = 'http://host.docker.internal:7890' if IS_DOCKER else 'http://localho
 USE_PROXY = True
 ALWAYS_NOTIFY = False
 
+# Cookie 配置
+COOKIE_FILE = "cookies.txt"  # cookie 文件路径
+
 # HTML URL
-API_URL = "https://www.binance.com/en/support/announcement/new-cryptocurrency-listing?c=48&navId=48&hl=en"
+LISTING_API_URL = "https://www.binance.com/en/support/announcement/new-cryptocurrency-listing?c=48&navId=48&hl=en"
 
 # 监控周期，单位：秒
 MONITOR_INTERVAL = 60  # 每隔 60 秒查询一次
@@ -95,13 +101,18 @@ MONITOR_INTERVAL = 60  # 每隔 60 秒查询一次
 
 ## 通知示例
 
-当检测到新币上线公告时，会发送如下格式的通知：
+当检测到新公告时，会发送如下格式的通知：
 
 ```
-🚀 新币种上线公告 📢
-标题: Binance Will List XXX (XXX)
-时间: 2024-XX-XX XX:XX:XX
-链接: https://www.binance.com/...
+🚀 新币种上线公告
+📌: Binance Will List XXX (XXX)
+🕒: 2024-XX-XX XX:XX:XX
+🔗: https://www.binance.com/...
+
+📢 新活动公告
+📌: New Binance Activity
+🕒: 2024-XX-XX XX:XX:XX
+🔗: https://www.binance.com/...
 ```
 
 ## 注意事项
@@ -109,12 +120,14 @@ MONITOR_INTERVAL = 60  # 每隔 60 秒查询一次
 1. 使用企业微信机器人需要配置正确的 webhook 地址
 2. 如果在国内使用，建议配置代理
 3. Docker 部署时需要确保主机的代理服务可以被容器访问
+4. 首次运行时会自动获取并保存 cookie
 
 ## 错误处理
 
 程序会自动处理和记录以下情况：
 - 网络连接错误
 - API 响应超时
+- Cookie 过期
 - 解析错误
 - 代理连接问题
 
