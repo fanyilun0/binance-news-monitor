@@ -8,7 +8,7 @@ import asyncio
 import re
 
 from cookie import CookieManager
-from config import WEBHOOK_URL, PROXY_URL, USE_PROXY, COOKIE_FILE
+from config import WEBHOOK_URL, PROXY_URL, USE_PROXY
 from emoji import get_emoji_and_type
 
 # User-Agent池
@@ -37,7 +37,7 @@ error_msg_count = 0
 last_error_reset_time = datetime.now()
 
 # 初始化CookieManager
-cookie_manager = CookieManager(COOKIE_FILE)
+cookie_manager = CookieManager()
 
 def build_article_link(title: str, code: str) -> str:
     """构建文章链接

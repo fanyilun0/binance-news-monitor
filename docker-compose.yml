@@ -15,7 +15,7 @@ services:
       - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     cap_add:
       - SYS_ADMIN
-    shm_size: '1gb'
+    shm_size: '0.5gb'
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: always

@@ -29,13 +29,16 @@ RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
 
 # 安装Python依赖
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt || (echo "Failed to install requirements" && exit 1)
+RUN pip install --no-cache-dir -r requirements.txt 
+
+# 验证pandas安装
+RUN python3 -c "import pandas; print('pandas version:', pandas.__version__)" 
 
 # 安装playwright
-RUN python3 -m playwright install chromium || (echo "Failed to install playwright browsers" && exit 1)
+RUN python3 -m playwright install chromium
 
 # 验证安装
-RUN python3 -c "from playwright.async_api import async_playwright" || (echo "Failed to import playwright" && exit 1)
+RUN python3 -c "from playwright.async_api import async_playwright" 
 
 # 复制程序文件
 COPY . .

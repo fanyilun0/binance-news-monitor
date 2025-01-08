@@ -2,5 +2,7 @@ aiohttp>=3.8.0
 requests>=2.26.0
 beautifulsoup4 
 debugpy
-playwright
+playwright==1.41.0
 chromium
+pandas==2.1.4
+python-dotenv==1.0.1

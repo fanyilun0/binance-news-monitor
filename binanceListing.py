@@ -69,8 +69,6 @@ def parse_listing_data(html_content: str) -> Optional[tuple[List[Dict[str, Any]]
         return None
 
 async def save_and_parse_listings() -> Optional[tuple[List[Dict[str, Any]], List[Dict[str, Any]]]]:
-    """获取并解析上币公告数据"""
-    log_with_time("Fetching and parsing listings...")
     response_text = await fetch_and_save_html_content(LISTING_API_URL, LISTING_RAW_FILE)
     if response_text is None:
         return None
@@ -145,8 +143,6 @@ async def monitor() -> None:
                     if article['id'] in new_article_ids:
                         log_with_time(f"🟢 Article: [News] {article['title']}")
                 await send_new_article_notifications(all_articles, new_article_ids, False)
-            else:
-                log_with_time("No new articles found")
             
             # 更新上次的文章ID集合
             last_article_ids = current_article_ids
