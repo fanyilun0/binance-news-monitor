@@ -24,12 +24,12 @@
 - 🕒 可配置监控间隔
 - 📝 详细的日志记录
 - 🔄 自动重试机制
-- ⚡ 异步处理架构
+- 🔀  异步处理架构
 
 ### 部署特性
 - 🐳 支持 Docker 部署
 - 🌐 支持代理设置
-- ⚙️ 简单的环境变量配置
+- 🛠️ 简单的环境变量配置
 
 ## 环境要求
 
@@ -68,7 +68,7 @@ python main.py  # 运行所有监控
 ```
 或分别运行：
 ```bash
-python main.py  # 运行币安监控
+python binanceListing.py  # 运行币安监控
 python coinglass.py  # 单独运行Coinglass监控
 ```
 
@@ -112,10 +112,12 @@ WEBHOOK_KEY=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ## 通知示例
 当检测到新公告时，会发送如下格式的通知：
 
+```
 🚀 新币种上线公告
 📌: Binance Will List XXX (XXX)
 🕒: 2024-XX-XX XX:XX:XX
 🔗: https://www.binance.com/...
+```
 
 ## 注意事项
 
