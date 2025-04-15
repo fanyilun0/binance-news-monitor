@@ -1,2 +1,5 @@
 *.html
 *.json
+__pycache__
+.env
+cookies.txt
