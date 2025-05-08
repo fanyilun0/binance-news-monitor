@@ -18,11 +18,12 @@ USE_PROXY = True
 ALWAYS_NOTIFY = True
 
 # HTML URL
-LISTING_API_URL = "https://www.binance.com/en/support/announcement/new-cryptocurrency-listing?c=48&navId=48&hl=en"
+LISTING_API_URL = "https://www.binance.com/en/support/announcement/list/48?navId=48"
+
 # 监控周期，单位：秒
 MONITOR_INTERVAL = 60  # 每隔 60 秒查询一次
 
-ENABLE_COINGLASS=True
+ENABLE_COINGLASS=False
 # 指标图表URL
 COINGLASS_URL = "https://www.coinglass.com/bull-market-peak-signals"
 

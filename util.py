@@ -6,6 +6,11 @@ from pathlib import Path
 import json
 import asyncio
 import re
+import time
+import subprocess
+import shlex
+import base64
+from urllib.parse import urlparse, parse_qs
 
 from cookie import CookieManager
 from config import WEBHOOK_URL, PROXY_URL, USE_PROXY
@@ -54,7 +59,7 @@ def build_article_link(title: str, code: str) -> str:
     # 处理标题格式
     formatted_title = title.lower()
     # 使用正则表达式移除特定标点符号，将撇号替换为连字符
-    formatted_title = re.sub(r'[()!?.,:“”#&]', '', formatted_title)
+    formatted_title = re.sub(r'[()!?.,:""#&]', '', formatted_title)
     formatted_title = formatted_title.replace("'", "-")
     # 将连续的空格替换为单个破折号
     formatted_title = re.sub(r'\s+', '-', formatted_title)
@@ -139,64 +144,245 @@ async def get_headers(referer: str = '') -> Dict[str, str]:
             log_with_time(f"Failed to get cookies: {e}")
             raise
     
-    return {
-        'authority': 'www.binance.com',
+    # 完全匹配浏览器头部
+    headers = {
+        ':authority': 'www.binance.com',
+        ':method': 'GET',
+        ':scheme': 'https',
         'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
         'accept-encoding': 'gzip, deflate, br, zstd',
         'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8,zh-TW;q=0.7',
         'cache-control': 'max-age=0',
-        'User-Agent': random.choice(USER_AGENTS),
         'cookie': cookie,
-        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'sec-ch-ua': '"Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
         'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
+        'sec-ch-ua-platform': '"macOS"',
         'sec-fetch-dest': 'document',
         'sec-fetch-mode': 'navigate',
         'sec-fetch-site': 'same-origin',
         'sec-fetch-user': '?1',
-        'upgrade-insecure-requests': '1'
+        'upgrade-insecure-requests': '1',
+        'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+        'priority': 'u=0, i'
     }
+    
+    # 如果提供了referer，添加到头部
+    if referer:
+        headers['referer'] = referer
+        
+    return headers
+
+async def fetch_with_curl(url: str, cookie: str, proxy: str = None) -> Optional[str]:
+    """使用curl命令获取网页内容"""
+    try:
+        cmd = [
+            'curl', 
+            url,
+            '-H', f'Cookie: {cookie}',
+            '-H', 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+            '-H', 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            '-H', 'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,zh-TW;q=0.7',
+            '-H', 'Cache-Control: max-age=0',
+            '-H', 'sec-ch-ua: "Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
+            '-H', 'sec-ch-ua-mobile: ?0',
+            '-H', 'sec-ch-ua-platform: "macOS"',
+            '-H', 'sec-fetch-dest: document',
+            '-H', 'sec-fetch-mode: navigate',
+            '-H', 'sec-fetch-site: same-origin',
+            '-H', 'sec-fetch-user: ?1',
+            '-H', 'upgrade-insecure-requests: 1',
+            '--compressed',
+            '-s',  # 静默模式
+            '-L'   # 跟随重定向
+        ]
+        
+        # 如果有代理，添加代理设置
+        if proxy:
+            cmd.extend(['--proxy', proxy])
+            
+        log_with_time(f"Executing curl command for {url}")
+        
+        # 使用异步子进程运行curl
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode != 0:
+            log_with_time(f"Curl command failed: {stderr.decode()}")
+            return None
+            
+        return stdout.decode('utf-8')
+    except Exception as e:
+        log_with_time(f"Error executing curl: {e}")
+        return None
+
+async def handle_human_verification(content: str) -> bool:
+    """处理人机验证页面，提醒用户需要手动验证"""
+    # 检查是否包含人机验证的特征
+    if "Human Verification" in content or "captcha" in content or "AwsWafIntegration" in content:
+        log_with_time("⚠️ 检测到人机验证页面！")
+        
+        # 从HTML内容中提取AWS WAF相关信息
+        aws_token_match = re.search(r'aws-waf-token=([^;"]+)', content)
+        aws_token = aws_token_match.group(1) if aws_token_match else None
+        
+        # 发送通知给用户，提醒需要手动处理
+        message = (
+            "⚠️ 人机验证拦截\n"
+            "币安网站已启用人机验证，需要您手动操作：\n"
+            "1. 请访问币安公告页面并完成验证\n"
+            "2. 完成验证后复制新cookie并更新配置\n"
+            f"AWS Token: {aws_token if aws_token else '未找到'}"
+        )
+        await send_message_async(message, is_error=True)
+        return True
+    
+    return False
 
 async def fetch_and_save_html_content(url: str, filename: str, max_retries: int = 3) -> Optional[str]:
     """获取并保存HTML内容,支持cookie自动更新"""
     for attempt in range(max_retries):
         try:
-            headers = await get_headers()
-            log_with_time(f"Starting request to {url}")
-            log_with_time(f"Using cookie: {headers['cookie'][:50]}...")
+            # 使用固定的时间戳参数
+            if '?' in url:
+                base_url, params = url.split('?', 1)
+                params_dict = {}
+                for param in params.split('&'):
+                    if '=' in param:
+                        k, v = param.split('=', 1)
+                        params_dict[k] = v
+                
+                # 确保有navId参数
+                if 'navId' not in params_dict:
+                    params_dict['navId'] = '48'
+                    
+                # 使用固定时间戳
+                params_dict['t'] = str(int(time.time()))
+                
+                # 重建URL
+                query_params = '&'.join([f"{k}={v}" for k, v in params_dict.items()])
+                url_with_params = f"{base_url}?{query_params}"
+            else:
+                # 如果URL没有参数，添加必要的参数
+                url_with_params = f"{url}?navId=48&t={int(time.time())}"
+            
+            log_with_time(f"Starting request to {url_with_params}")
+            
+            # 获取cookie
+            cookie = cookie_manager.get_cookies()
+            if not cookie:
+                cookie = await cookie_manager.update_cookies()
+                
+            log_with_time(f"Using cookie: {cookie[:50]}...")
             
             proxy = PROXY_URL if USE_PROXY else None
             log_with_time(f"Attempt {attempt + 1}/{max_retries} with proxy: {proxy}")
             
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, proxy=proxy) as response:
-                    log_with_time(f"🔄 Response status: {response.status}")
+            # 首先尝试使用curl，它通常比aiohttp更好地模拟浏览器
+            curl_content = await fetch_with_curl(url_with_params, cookie, proxy)
+            if curl_content:
+                log_with_time("🔄 Successfully fetched content with curl")
+                
+                # 检查是否是人机验证页面
+                if await handle_human_verification(curl_content):
+                    # 如果是人机验证页面，保存到文件以便分析
+                    file_path = DATA_DIR / f"captcha_{filename}"
+                    file_path.write_text(curl_content, encoding='utf-8')
+                    log_with_time(f"💾 Captcha page saved to {file_path}")
+                    return None
+                
+                # 保存内容到文件
+                file_path = DATA_DIR / filename
+                file_path.write_text(curl_content, encoding='utf-8')
+                log_with_time(f"💾 Content saved to {file_path}")
+                return curl_content
+            else:
+                log_with_time("❌ Failed to fetch content with curl, trying aiohttp...")
+            
+            # 如果curl失败，尝试使用aiohttp
+            try:
+                headers = await get_headers()
+                regular_headers = {k: v for k, v in headers.items() if not k.startswith(':')}
+                
+                # 添加随机的可接受格式和编码，以及更多的浏览器特征
+                regular_headers['Accept-Encoding'] = 'gzip, deflate, br'
+                regular_headers['Connection'] = 'keep-alive'
+                
+                # 添加referer头，模拟从币安主页访问
+                regular_headers['Referer'] = 'https://www.binance.com/en'
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        url_with_params, 
+                        headers=regular_headers, 
+                        proxy=proxy,
+                        timeout=aiohttp.ClientTimeout(total=30)
+                    ) as response:
+                        log_with_time(f"🔄 Response status: {response.status}")
+                        
+                        if response.status == 200:
+                            content = await response.text()
+                            
+                            # 检查是否是人机验证页面
+                            if await handle_human_verification(content):
+                                # 如果是人机验证页面，保存到文件以便分析
+                                file_path = DATA_DIR / f"captcha_{filename}"
+                                file_path.write_text(content, encoding='utf-8')
+                                log_with_time(f"💾 Captcha page saved to {file_path}")
+                                return None
+                            
+                            # 保存内容到文件
+                            file_path = DATA_DIR / filename
+                            file_path.write_text(content, encoding='utf-8')
+                            log_with_time(f"💾 Content saved to {file_path}")
+                            return content
+                        elif response.status == 202:
+                            log_with_time("🔑 Cookie expired, updating...")
+                            await cookie_manager.update_cookies()
+                            continue
+                        else:
+                            log_with_time(f"❌ Request failed with status: {response.status}")
+            except aiohttp.ClientError as e:
+                log_with_time(f"aiohttp request failed: {e}")
                     
-                    if response.status == 202:
-                        log_with_time("🔑 Cookie expired, updating...")
-                        await cookie_manager.update_cookies()
-                        continue
-                        
-                    if response.status == 200:
-                        content = await response.text()
-                        
-                        # 保存内容到文件
-                        file_path = DATA_DIR / filename
-                        file_path.write_text(content, encoding='utf-8')
-                        log_with_time(f"💾 Content saved to {file_path}")
-                        
-                        return content
-                    else:
-                        log_with_time(f"❌ Request failed with status: {response.status}")
-                        
         except Exception as e:
             log_with_time(f"Error in attempt {attempt + 1}: {e}")
             if attempt == max_retries - 1:
                 raise
             
-        await asyncio.sleep(2 ** attempt)  # 指数退避
+        # 指数退避
+        retry_delay = 2 ** attempt
+        log_with_time(f"Retrying in {retry_delay} seconds...")
+        await asyncio.sleep(retry_delay)
     
+    # 所有尝试都失败后，发送通知
+    await send_message_async("❌ 无法获取币安公告列表，请检查网络或更新Cookie", is_error=True)
     return None
+
+async def update_cookie_from_file(file_path: str) -> bool:
+    """从文件更新cookie"""
+    try:
+        path = Path(file_path)
+        if not path.exists():
+            log_with_time(f"Cookie文件不存在: {file_path}")
+            return False
+            
+        cookie = path.read_text().strip()
+        if not cookie:
+            log_with_time("Cookie文件为空")
+            return False
+            
+        # 更新cookie
+        cookie_manager.update_cookie_from_str(cookie)
+        log_with_time("成功从文件更新cookie")
+        return True
+    except Exception as e:
+        log_with_time(f"从文件更新cookie失败: {e}")
+        return False
 
 def save_html_content(response_text: str, filename: str) -> None:
     """保存HTML内容到data目录下的文件
