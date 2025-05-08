@@ -135,7 +135,7 @@ def log_with_time(message: str, module: str = '') -> None:
     print(f"[{current_time}] {message}")
 
 async def get_headers(referer: str = '') -> Dict[str, str]:
-    """生成请求头,支持自动更新cookie"""
+    """生成高度模拟真实浏览器的请求头"""
     cookie = cookie_manager.get_cookies()
     if not cookie:
         try:
@@ -144,31 +144,51 @@ async def get_headers(referer: str = '') -> Dict[str, str]:
             log_with_time(f"Failed to get cookies: {e}")
             raise
     
-    # 完全匹配浏览器头部
+    # 随机选择用户代理
+    user_agent = get_random_user_agent()
+    
+    # 生成随机的浏览器特征
+    chrome_version = random.randint(100, 135)
+    platform = random.choice(["macOS", "Windows"])
+    
+    # 添加更多真实的浏览器指纹
     headers = {
-        ':authority': 'www.binance.com',
-        ':method': 'GET',
-        ':scheme': 'https',
+        'authority': 'www.binance.com',
+        'method': 'GET',
+        'scheme': 'https',
         'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
         'accept-encoding': 'gzip, deflate, br, zstd',
-        'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8,zh-TW;q=0.7',
+        'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
         'cache-control': 'max-age=0',
         'cookie': cookie,
-        'sec-ch-ua': '"Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
+        'sec-ch-ua': f'"Google Chrome";v="{chrome_version}", "Not-A.Brand";v="8", "Chromium";v="{chrome_version}"',
         'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"macOS"',
+        'sec-ch-ua-platform': f'"{platform}"',
         'sec-fetch-dest': 'document',
         'sec-fetch-mode': 'navigate',
         'sec-fetch-site': 'same-origin',
         'sec-fetch-user': '?1',
         'upgrade-insecure-requests': '1',
-        'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+        'user-agent': user_agent,
+        # 添加随机浏览器指纹参数
+        'viewport-width': f'{random.choice([1280, 1440, 1920])}',
+        'device-memory': f'{random.choice([4, 8, 16])}',
+        'dpr': f'{random.choice([1, 2])}',
         'priority': 'u=0, i'
     }
     
     # 如果提供了referer，添加到头部
     if referer:
         headers['referer'] = referer
+    else:
+        # 使用随机的前导页面作为referer
+        referers = [
+            'https://www.binance.com/en',
+            'https://www.binance.com/en/markets',
+            'https://www.binance.com/en/trade',
+            'https://www.binance.com/en/my/dashboard'
+        ]
+        headers['referer'] = random.choice(referers)
         
     return headers
 
@@ -230,7 +250,16 @@ async def handle_human_verification(content: str) -> bool:
         aws_token_match = re.search(r'aws-waf-token=([^;"]+)', content)
         aws_token = aws_token_match.group(1) if aws_token_match else None
         
-        # 发送通知给用户，提醒需要手动处理
+        # 尝试自动更新cookie
+        try:
+            new_cookie = await cookie_manager.update_cookies()
+            if new_cookie and new_cookie != cookie_manager.get_cookies():
+                log_with_time("✅ 成功自动更新Cookie")
+                return False  # 不发送通知，直接重试
+        except Exception as e:
+            log_with_time(f"❌ 自动更新Cookie失败: {e}")
+        
+        # 如果自动更新失败，发送通知给用户
         message = (
             "⚠️ 人机验证拦截\n"
             "币安网站已启用人机验证，需要您手动操作：\n"
