@@ -134,6 +134,10 @@ def log_with_time(message: str, module: str = '') -> None:
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{current_time}] {message}")
 
+def get_random_user_agent() -> str:
+    """随机选择一个用户代理"""
+    return random.choice(USER_AGENTS)
+
 async def get_headers(referer: str = '') -> Dict[str, str]:
     """生成高度模拟真实浏览器的请求头"""
     cookie = cookie_manager.get_cookies()

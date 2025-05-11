@@ -6,6 +6,8 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 from typing import Optional, Dict, List
 
+from config import USE_PROXY
+
 class CookieManager:
     """管理和更新Cookie"""
     
