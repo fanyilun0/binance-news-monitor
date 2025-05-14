@@ -15,13 +15,13 @@ WEBHOOK_URL = f'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={WEBHOOK_KE
 # 根据运行环境选择代理地址
 PROXY_URL = 'http://host.docker.internal:7890' if IS_DOCKER else 'http://localhost:7890'
 USE_PROXY = True
-ALWAYS_NOTIFY = True
+ALWAYS_NOTIFY = False
 
 # HTML URL
 LISTING_API_URL = "https://www.binance.com/en/support/announcement/list/48?navId=48"
 
 # 监控周期，单位：秒
-MONITOR_INTERVAL = 60  # 每隔 60 秒查询一次
+MONITOR_INTERVAL = 600  # 每隔 600 秒查询一次
 
 ENABLE_COINGLASS=False
 # 指标图表URL

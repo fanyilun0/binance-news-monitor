@@ -1,8 +1,11 @@
 import asyncio
 import binanceListing
 import coinglass
+import sys
 from datetime import datetime
 from config import ENABLE_COINGLASS, COINGLASS_FILE_INTERVAL
+from cookie import get_binance_cookie
+
 def log_with_time(message):
     """打印带时间戳的消息"""
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -46,11 +49,33 @@ async def run_all_monitors():
         await asyncio.sleep(60)
         await run_all_monitors()
 
-if __name__ == "__main__":
-    log_with_time("🟢 启动币安公告监控系统...")
+async def update_cookie_cmd():
+    """手动更新Cookie的命令行入口"""
+    log_with_time("🟢 正在打开浏览器更新Cookie...")
+    log_with_time("🟢 请在打开的浏览器中登录或完成人机验证")
+    
     try:
-        asyncio.run(run_all_monitors())
-    except KeyboardInterrupt:
-        log_with_time("🟢 监控系统被用户停止")
+        cookie = await get_binance_cookie()
+        if cookie:
+            log_with_time("✅ Cookie更新成功")
+            return True
+        else:
+            log_with_time("❌ Cookie更新失败")
+            return False
     except Exception as e:
-        log_with_time(f"❌ 监控系统致命错误: {e}")
+        log_with_time(f"❌ Cookie更新出错: {e}")
+        return False
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "update_cookie":
+        # 运行更新Cookie命令
+        asyncio.run(update_cookie_cmd())
+    else:
+        # 正常启动监控
+        log_with_time("🟢 启动币安公告监控系统...")
+        try:
+            asyncio.run(run_all_monitors())
+        except KeyboardInterrupt:
+            log_with_time("🟢 监控系统被用户停止")
+        except Exception as e:
+            log_with_time(f"❌ 监控系统致命错误: {e}")

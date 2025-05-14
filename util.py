@@ -244,38 +244,6 @@ async def fetch_with_curl(url: str, cookie: str, proxy: str = None) -> Optional[
         log_with_time(f"Error executing curl: {e}")
         return None
 
-async def handle_human_verification(content: str) -> bool:
-    """处理人机验证页面，提醒用户需要手动验证"""
-    # 检查是否包含人机验证的特征
-    if "Human Verification" in content or "captcha" in content or "AwsWafIntegration" in content:
-        log_with_time("⚠️ 检测到人机验证页面！")
-        
-        # 从HTML内容中提取AWS WAF相关信息
-        aws_token_match = re.search(r'aws-waf-token=([^;"]+)', content)
-        aws_token = aws_token_match.group(1) if aws_token_match else None
-        
-        # 尝试自动更新cookie
-        try:
-            new_cookie = await cookie_manager.update_cookies()
-            if new_cookie and new_cookie != cookie_manager.get_cookies():
-                log_with_time("✅ 成功自动更新Cookie")
-                return False  # 不发送通知，直接重试
-        except Exception as e:
-            log_with_time(f"❌ 自动更新Cookie失败: {e}")
-        
-        # 如果自动更新失败，发送通知给用户
-        message = (
-            "⚠️ 人机验证拦截\n"
-            "币安网站已启用人机验证，需要您手动操作：\n"
-            "1. 请访问币安公告页面并完成验证\n"
-            "2. 完成验证后复制新cookie并更新配置\n"
-            f"AWS Token: {aws_token if aws_token else '未找到'}"
-        )
-        await send_message_async(message, is_error=True)
-        return True
-    
-    return False
-
 async def fetch_and_save_html_content(url: str, filename: str, max_retries: int = 3) -> Optional[str]:
     """获取并保存HTML内容,支持cookie自动更新"""
     for attempt in range(max_retries):
@@ -321,11 +289,26 @@ async def fetch_and_save_html_content(url: str, filename: str, max_retries: int 
                 log_with_time("🔄 Successfully fetched content with curl")
                 
                 # 检查是否是人机验证页面
-                if await handle_human_verification(curl_content):
-                    # 如果是人机验证页面，保存到文件以便分析
+                if "Human Verification" in curl_content or "captcha" in curl_content or "AwsWafIntegration" in curl_content:
+                    log_with_time("⚠️ 检测到人机验证页面，尝试更新Cookie...")
+                    # 保存内容以便分析
                     file_path = DATA_DIR / f"captcha_{filename}"
                     file_path.write_text(curl_content, encoding='utf-8')
-                    log_with_time(f"💾 Captcha page saved to {file_path}")
+                    log_with_time(f"💾 验证页面已保存到 {file_path}")
+                    
+                    # 尝试更新cookie
+                    try:
+                        await cookie_manager.update_cookies()
+                        log_with_time("✅ 已尝试更新Cookie，请在打开的浏览器中完成验证")
+                    except Exception as e:
+                        log_with_time(f"❌ 更新Cookie失败: {e}")
+                        # 发送通知
+                        await send_message_async(
+                            "⚠️ 币安人机验证拦截\n"
+                            "请运行以下命令手动更新Cookie:\n"
+                            "python main.py update_cookie", 
+                            is_error=True
+                        )
                     return None
                 
                 # 保存内容到文件
@@ -335,52 +318,6 @@ async def fetch_and_save_html_content(url: str, filename: str, max_retries: int 
                 return curl_content
             else:
                 log_with_time("❌ Failed to fetch content with curl, trying aiohttp...")
-            
-            # 如果curl失败，尝试使用aiohttp
-            try:
-                headers = await get_headers()
-                regular_headers = {k: v for k, v in headers.items() if not k.startswith(':')}
-                
-                # 添加随机的可接受格式和编码，以及更多的浏览器特征
-                regular_headers['Accept-Encoding'] = 'gzip, deflate, br'
-                regular_headers['Connection'] = 'keep-alive'
-                
-                # 添加referer头，模拟从币安主页访问
-                regular_headers['Referer'] = 'https://www.binance.com/en'
-                
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(
-                        url_with_params, 
-                        headers=regular_headers, 
-                        proxy=proxy,
-                        timeout=aiohttp.ClientTimeout(total=30)
-                    ) as response:
-                        log_with_time(f"🔄 Response status: {response.status}")
-                        
-                        if response.status == 200:
-                            content = await response.text()
-                            
-                            # 检查是否是人机验证页面
-                            if await handle_human_verification(content):
-                                # 如果是人机验证页面，保存到文件以便分析
-                                file_path = DATA_DIR / f"captcha_{filename}"
-                                file_path.write_text(content, encoding='utf-8')
-                                log_with_time(f"💾 Captcha page saved to {file_path}")
-                                return None
-                            
-                            # 保存内容到文件
-                            file_path = DATA_DIR / filename
-                            file_path.write_text(content, encoding='utf-8')
-                            log_with_time(f"💾 Content saved to {file_path}")
-                            return content
-                        elif response.status == 202:
-                            log_with_time("🔑 Cookie expired, updating...")
-                            await cookie_manager.update_cookies()
-                            continue
-                        else:
-                            log_with_time(f"❌ Request failed with status: {response.status}")
-            except aiohttp.ClientError as e:
-                log_with_time(f"aiohttp request failed: {e}")
                     
         except Exception as e:
             log_with_time(f"Error in attempt {attempt + 1}: {e}")
