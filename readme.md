@@ -1,5 +1,7 @@
 # Binance 新币公告监控工具
 
+> 另外一种更好的实践: [WSS接收通知推送](https://github.com/fanyilun0/binance-announcement-websocket)
+
 ## 项目简介
 
 这是一个用于监控币安(Binance)公告和市场指标的自动化工具。它可以实时监控币安官方公告页面和 Coinglass 市场指标，并通过企业微信机器人发送通知。
